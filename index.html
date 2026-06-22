@@ -6,13 +6,11 @@
     <title>로또 생성기 v2.0</title>
     <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --primary: #ff9500; --bg: #f0f2f7; --card: #ffffff; --text: #1a1a2e; --sub: #6b7280; --history-bg: #e8ecf5;
-        }
-        [data-theme="dark"] { --primary: #ff9500; --bg: #0f0f1a; --card: #1c1c2e; --text: #f0f0f0; --sub: #9ca3af; --history-bg: #14142a; }
-        [data-theme="blue"] { --primary: #3b82f6; --bg: #eff6ff; --card: #ffffff; --text: #1e3a5f; --sub: #6b7280; --history-bg: #dbeafe; }
-        [data-theme="green"] { --primary: #22c55e; --bg: #f0fdf4; --card: #ffffff; --text: #14532d; --sub: #6b7280; --history-bg: #dcfce7; }
-        [data-theme="pink"] { --primary: #ec4899; --bg: #fdf2f8; --card: #ffffff; --text: #831843; --sub: #9d4e7c; --history-bg: #fce7f3; }
+        :root { --primary: #ff9500; --bg: #f0f2f7; --card: #ffffff; --text: #1a1a2e; --history-bg: #e8ecf5; }
+        [data-theme="dark"] { --primary: #ff9500; --bg: #0f0f1a; --card: #1c1c2e; --text: #f0f0f0; --history-bg: #14142a; }
+        [data-theme="blue"] { --primary: #3b82f6; --bg: #eff6ff; --card: #ffffff; --text: #1e3a5f; --history-bg: #dbeafe; }
+        [data-theme="green"] { --primary: #22c55e; --bg: #f0fdf4; --card: #ffffff; --text: #14532d; --history-bg: #dcfce7; }
+        [data-theme="pink"] { --primary: #ec4899; --bg: #fdf2f8; --card: #ffffff; --text: #831843; --history-bg: #fce7f3; }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Noto Sans KR', sans-serif; background-color: var(--bg); color: var(--text); min-height: 100dvh; transition: background 0.3s; }
@@ -49,7 +47,8 @@
 
         .main-card { background: var(--card); margin: 0 16px; border-radius: 24px; padding: 24px 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
         .number-card { background: #1a1a2e; border-radius: 18px; padding: 24px 16px; margin-top: 20px; min-height: 100px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
-        .ball { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 15px; }
+        .ball { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 15px; opacity: 0; transform: scale(0.5); transition: all 0.5s ease-out; }
+        .ball.show { opacity: 1; transform: scale(1); }
         
         .history-section { background: var(--history-bg); flex: 1; margin-top: 16px; padding: 20px 16px 30px; border-radius: 24px 24px 0 0; }
         .history-item { background: var(--card); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: var(--text); }
@@ -72,6 +71,7 @@
             <button class="theme-btn" data-t="dark" onclick="setTheme('dark', this)">🌑 다크</button>
             <button class="theme-btn" data-t="blue" onclick="setTheme('blue', this)">🔵 블루</button>
             <button class="theme-btn" data-t="green" onclick="setTheme('green', this)">🟢 그린</button>
+            <button class="theme-btn" data-t="pink" onclick="setTheme('pink', this)">🌸 핑크</button>
         </div>
         <div class="menu-section-title">개발자의 말</div>
         <div class="dev-note">
@@ -111,7 +111,29 @@
     let lottoHistory = JSON.parse(localStorage.getItem('lottoHistory')) || [];
     let currentNumbers = [];
 
-    // 테마 설정 함수
+    function getBallColor(n) {
+        if(n <= 10) return '#fbc400';
+        if(n <= 20) return '#69c8f2';
+        if(n <= 30) return '#ff7272';
+        if(n <= 40) return '#aaaaaa';
+        return '#b0d840';
+    }
+
+    async function generateLotto() {
+        currentNumbers = Array.from({length: 45}, (_, i) => i + 1).sort(() => Math.random() - 0.5).slice(0, 6).sort((a, b) => a - b);
+        const res = document.getElementById('result');
+        res.innerHTML = ''; 
+        for(let n of currentNumbers) {
+            const ball = document.createElement('div');
+            ball.className = 'ball';
+            ball.style.backgroundColor = getBallColor(n);
+            ball.innerText = n;
+            res.appendChild(ball);
+            await new Promise(r => setTimeout(r, 400));
+            ball.classList.add('show');
+        }
+    }
+
     function setTheme(t, btn) {
         document.documentElement.setAttribute('data-theme', t === 'default' ? '' : t);
         localStorage.setItem('lottoTheme', t);
@@ -119,7 +141,6 @@
         btn.classList.add('active');
     }
 
-    // 페이지 로드 시 저장된 테마 불러오기
     window.onload = () => {
         const savedTheme = localStorage.getItem('lottoTheme') || 'default';
         const btn = document.querySelector(`[data-t="${savedTheme}"]`);
@@ -129,12 +150,6 @@
     function openMenu() { document.getElementById('side-menu').classList.add('open'); document.getElementById('overlay').classList.add('active'); }
     function closeMenu() { document.getElementById('side-menu').classList.remove('open'); document.getElementById('overlay').classList.remove('active'); }
 
-    function generateLotto() {
-        currentNumbers = Array.from({length: 45}, (_, i) => i + 1).sort(() => Math.random() - 0.5).slice(0, 6).sort((a, b) => a - b);
-        const res = document.getElementById('result');
-        res.innerHTML = currentNumbers.map(n => `<div class="ball" style="background:var(--primary)">${n}</div>`).join('');
-    }
-
     function saveLotto() {
         if(currentNumbers.length === 0) return alert("추첨 먼저!");
         lottoHistory.unshift(currentNumbers);
@@ -142,7 +157,11 @@
         updateUI();
     }
 
-    function clearAll() { lottoHistory = []; localStorage.removeItem('lottoHistory'); updateUI(); }
+    function clearAll() { 
+        if(confirm("정말로 전체 기록을 삭제하시겠습니까?")) {
+            lottoHistory = []; localStorage.removeItem('lottoHistory'); updateUI(); 
+        }
+    }
     
     function updateUI() {
         const list = document.getElementById('history-list');
@@ -153,7 +172,11 @@
             </div>`).join('');
     }
     
-    function del(i) { lottoHistory.splice(i, 1); localStorage.setItem('lottoHistory', JSON.stringify(lottoHistory)); updateUI(); }
+    function del(i) { 
+        if(confirm("이 기록을 삭제하시겠습니까?")) {
+            lottoHistory.splice(i, 1); localStorage.setItem('lottoHistory', JSON.stringify(lottoHistory)); updateUI(); 
+        }
+    }
 
     updateUI();
 </script>
