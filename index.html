@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로또 생성기 v2.0</title>
+    <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #ff9500;
+            --bg: #f0f2f7;
+            --card: #ffffff;
+            --text: #1a1a2e;
+            --sub: #6b7280;
+            --history-bg: #e8ecf5;
+        }
+        [data-theme="dark"] { --bg: #0f0f1a; --card: #1c1c2e; --text: #f0f0f0; --sub: #9ca3af; --history-bg: #14142a; }
+        [data-theme="blue"] { --primary: #3b82f6; --bg: #eff6ff; --card: #ffffff; --text: #1e3a5f; --history-bg: #dbeafe; }
+        [data-theme="green"] { --primary: #22c55e; --bg: #f0fdf4; --card: #ffffff; --text: #14532d; --history-bg: #dcfce7; }
+        [data-theme="pink"] { --primary: #ec4899; --bg: #fdf2f8; --card: #ffffff; --text: #831843; --history-bg: #fce7f3; }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: var(--bg); color: var(--text); min-height: 100dvh; transition: background 0.3s, color 0.3s; }
+
+        /* 사이드 메뉴 */
+        #overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 90; }
+        #overlay.active { display: block; }
+        #side-menu { position: fixed; top: 0; left: 0; height: 100%; width: 280px; background: #1a1a2e; z-index: 100; transform: translateX(-100%); transition: transform 0.35s cubic-bezier(.4,0,.2,1); display: flex; flex-direction: column; }
+        #side-menu.open { transform: translateX(0); }
+        .menu-header { background: linear-gradient(135deg, var(--primary), #ff6b35); padding: 50px 24px 24px; position: relative; }
+        .menu-header h2 { color: white; font-size: 22px; }
+        .closebtn { position: absolute; top: 14px; right: 18px; color: white; cursor: pointer; background: none; border: none; font-size: 26px; }
+        .menu-body { padding: 24px; flex: 1; overflow-y: auto; }
+        .theme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 28px; }
+        .theme-btn { padding: 10px 8px; border-radius: 10px; cursor: pointer; color: white; border: 2px solid transparent; }
+        .theme-btn.active { border-color: white; }
+
+        /* 메인 콘텐츠 */
+        .app-wrapper { max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; min-height: 100dvh; }
+        .app-header { display: flex; align-items: center; justify-content: space-between; padding: 20px; }
+        .main-card { background: var(--card); margin: 0 16px; border-radius: 24px; padding: 24px 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        .balls-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+        .ball { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; opacity: 0; transform: scale(0.3); transition: all 0.4s; }
+        .ball.revealed { opacity: 1; transform: scale(1); }
+        .btn-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 20px; }
+        .btn-row button { padding: 12px 6px; border: none; border-radius: 12px; cursor: pointer; color: white; }
+        
+        .history-section { background: var(--history-bg); flex: 1; margin-top: 16px; padding: 20px 16px; border-radius: 24px 24px 0 0; }
+        .history-item { background: var(--card); border-radius: 14px; padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .mini-ball { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; margin-right: 4px; }
+    </style>
+</head>
+<body>
+
+<div id="overlay" onclick="closeMenu()"></div>
+<nav id="side-menu">
+    <div class="menu-header">
+        <button class="closebtn" onclick="closeMenu()">✕</button>
+        <h2>🎰 로또 생성기</h2>
+    </div>
+    <div class="menu-body">
+        <div class="theme-grid">
+            <button class="theme-btn active" data-t="default" onclick="setTheme('default', this)" style="background: #ff9500;">기본</button>
+            <button class="theme-btn" data-t="dark" onclick="setTheme('dark', this)" style="background: #1c1c2e;">다크</button>
+        </div>
+    </div>
+</nav>
+
+<div class="app-wrapper">
+    <header class="app-header">
+        <button onclick="openMenu()">메뉴</button>
+        <h1>행운의 로또</h1>
+    </header>
+
+    <div class="main-card">
+        <div class="balls-row" id="result"><span class="empty-hint">추첨 버튼을 눌러보세요</span></div>
+        <div class="btn-row">
+            <button style="background:var(--primary)" onclick="generateLotto()">🎲 추첨</button>
+            <button style="background:#4caf50" onclick="saveLotto()">💾 저장</button>
+            <button style="background:#ff3b30" onclick="clearAll()">🗑 삭제</button>
+        </div>
+    </div>
+
+    <section class="history-section">
+        <div id="history-list"></div>
+    </section>
+</div>
+
+<script>
+    let lottoHistory = JSON.parse(localStorage.getItem('lottoHistory')) || [];
+    
+    function getBallColor(num) {
+        if (num <= 10) return '#fbc400';
+        if (num <= 20) return '#69c8f2';
+        if (num <= 30) return '#ff7272';
+        return '#aaaaaa';
+    }
+
+    function openMenu() { document.getElementById('side-menu').classList.add('open'); document.getElementById('overlay').classList.add('active'); }
+    function closeMenu() { document.getElementById('side-menu').classList.remove('open'); document.getElementById('overlay').classList.remove('active'); }
+    function setTheme(t, btn) { document.documentElement.setAttribute('data-theme', t === 'default' ? '' : t); }
+
+    function generateLotto() {
+        const nums = [];
+        while (nums.length < 6) {
+            const n = Math.floor(Math.random() * 45) + 1;
+            if (!nums.includes(n)) nums.push(n);
+        }
+        nums.sort((a, b) => a - b);
+        const res = document.getElementById('result');
+        res.innerHTML = '';
+        nums.forEach((n, i) => {
+            const b = document.createElement('div');
+            b.className = 'ball';
+            b.innerText = n;
+            b.style.backgroundColor = getBallColor(n);
+            res.appendChild(b);
+            setTimeout(() => b.classList.add('revealed'), i * 150);
+        });
+        window.currentNumbers = nums;
+    }
+
+    function saveLotto() {
+        if (!window.currentNumbers) return alert("번호를 먼저 생성하세요!");
+        lottoHistory.unshift(window.currentNumbers);
+        localStorage.setItem('lottoHistory', JSON.stringify(lottoHistory));
+        updateHistory();
+    }
+
+    function updateHistory() {
+        const list = document.getElementById('history-list');
+        list.innerHTML = '';
+        lottoHistory.forEach(nums => {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            nums.forEach(n => {
+                const b = document.createElement('div');
+                b.className = 'mini-ball';
+                b.style.backgroundColor = getBallColor(n);
+                b.innerText = n;
+                item.appendChild(b);
+            });
+            list.appendChild(item);
+        });
+    }
+
+    function clearAll() { lottoHistory = []; localStorage.clear(); updateHistory(); }
+    updateHistory();
+</script>
+</body>
+</html>
