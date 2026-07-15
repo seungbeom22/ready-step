@@ -75,9 +75,8 @@
 <div class="panel">
   <h2>스트라이크존 조정</h2>
   <div class="row"><label>좌우 위치(플레이트)</label><input type="range" id="zoneX" min="10" max="90" value="50"></div>
-  <div class="row"><label>존 폭</label><input type="range" id="zoneW" min="5" max="50" value="22"></div>
   <div class="row"><label>상하 중심위치</label><input type="range" id="zoneY" min="10" max="90" value="55"></div>
-  <div class="row"><label>존 높이</label><input type="range" id="zoneH" min="10" max="70" value="38"></div>
+  <div class="row"><label>존 크기</label><input type="range" id="zoneSize" min="5" max="60" value="30"></div>
 </div>
 
 <div class="scoreboard">
@@ -120,9 +119,10 @@ let calibrating = false;
 let calibPoints = [];
 let pixelsPerMeter = null;
 
-// zone config (percent of video frame)
-const zoneCfg = { x:50, w:22, y:55, h:38 };
-['zoneX','zoneW','zoneY','zoneH'].forEach(id=>{
+// zone config (percent of video frame). size is percent of the shorter video dimension,
+// applied equally to width and height so the zone always renders as a square.
+const zoneCfg = { x:50, y:55, size:30 };
+['zoneX','zoneY','zoneSize'].forEach(id=>{
   document.getElementById(id).addEventListener('input', e=>{
     zoneCfg[id.replace('zone','').toLowerCase()] = Number(e.target.value);
   });
