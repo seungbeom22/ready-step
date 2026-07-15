@@ -1,44 +1,61 @@
-// 기록을 저장할 배열
-let lottoHistory = [];
-
-function generateLotto() {
-    const numbers = [];
-    while(numbers.length < 6) {
-        const num = Math.floor(Math.random() * 45) + 1;
-        if(!numbers.includes(num)) numbers.push(num);
-    }
-    numbers.sort((a, b) => a - b);
-
-    // 1. 현재 결과 표시
-    const resultDiv = document.getElementById('result');
-    resultDiv.innerHTML = '';
-    numbers.forEach((num, index) => {
-        setTimeout(() => {
-            const ball = document.createElement('div');
-            ball.className = 'ball';
-            ball.innerText = num;
-            ball.style.backgroundColor = getBallColor(num);
-            resultDiv.appendChild(ball);
-        }, index * 100);
-    });
-
-    // 2. 기록 추가하기
-    lottoHistory.push(numbers.join(', '));
-    updateHistoryUI();
+body{
+    margin:0;
+    padding:20px;
+    background:#1a1a1a;
+    color:white;
+    font-family:Arial,sans-serif;
+    text-align:center;
 }
 
-// 기록 UI 업데이트
-function updateHistoryUI() {
-    const historyDiv = document.getElementById('history');
-    historyDiv.innerHTML = '<h3>📜 최근 추첨 기록</h3>';
-    
-    // 최근 5개만 보여주거나 전체를 보여줄 수 있습니다.
-    lottoHistory.slice().reverse().forEach((item, index) => {
-        if(index < 10) { // 최근 10개까지만 표시
-            const p = document.createElement('p');
-            p.className = 'history-item';
-            p.innerText = `${lottoHistory.length - index}회차: [ ${item} ]`;
-            historyDiv.appendChild(p);
-        }
-    });
+h1{
+    margin-bottom:20px;
+}
+
+#cameraBox{
+    position:relative;
+    width:360px;
+    height:640px;
+    margin:auto;
+    border:3px solid white;
+    overflow:hidden;
+    border-radius:10px;
+    background:black;
+}
+
+#video{
+    position:absolute;
+    width:100%;
+    height:100%;
+    object-fit:cover;
+}
+
+#canvas{
+    position:absolute;
+    width:100%;
+    height:100%;
+    left:0;
+    top:0;
+}
+
+#zone{
+    position:absolute;
+    width:180px;
+    height:240px;
+    border:4px solid lime;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+}
+
+.info{
+    margin-top:20px;
+}
+
+#result{
+    font-size:45px;
+    margin-bottom:15px;
+}
+
+p{
+    font-size:28px;
 }
