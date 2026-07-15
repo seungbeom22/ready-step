@@ -1,61 +1,53 @@
-body{
-    margin:0;
-    padding:20px;
-    background:#1a1a1a;
-    color:white;
-    font-family:Arial,sans-serif;
-    text-align:center;
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const result = document.getElementById("result");
+const balls = document.getElementById("balls");
+const strikes = document.getElementById("strikes");
+const speed = document.getElementById("speed");
+
+let ballCount = 0;
+let strikeCount = 0;
+
+async function startCamera(){
+
+    try{
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video:{
+                facingMode:"environment",
+                width:{ideal:1280},
+                height:{ideal:720}
+            },
+            audio:false
+        });
+
+        video.srcObject = stream;
+
+    }catch(e){
+
+        alert("카메라 권한을 허용해주세요.");
+
+    }
+
 }
 
-h1{
-    margin-bottom:20px;
+video.addEventListener("loadedmetadata",()=>{
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    draw();
+
+});
+
+function draw(){
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    requestAnimationFrame(draw);
+
 }
 
-#cameraBox{
-    position:relative;
-    width:360px;
-    height:640px;
-    margin:auto;
-    border:3px solid white;
-    overflow:hidden;
-    border-radius:10px;
-    background:black;
-}
-
-#video{
-    position:absolute;
-    width:100%;
-    height:100%;
-    object-fit:cover;
-}
-
-#canvas{
-    position:absolute;
-    width:100%;
-    height:100%;
-    left:0;
-    top:0;
-}
-
-#zone{
-    position:absolute;
-    width:180px;
-    height:240px;
-    border:4px solid lime;
-    left:50%;
-    top:50%;
-    transform:translate(-50%,-50%);
-}
-
-.info{
-    margin-top:20px;
-}
-
-#result{
-    font-size:45px;
-    margin-bottom:15px;
-}
-
-p{
-    font-size:28px;
-}
+startCamera();
