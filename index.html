@@ -1,38 +1,409 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ABS 시스템</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ABS 판독기</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2a3140;
+    --text:#e6edf3; --sub:#8b96a5; --accent:#4f8ff0; --strike:#e0524c; --ball:#3fb56f; --warn:#e0a83f;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}
+  header{padding:14px 16px 8px;}
+  header h1{font-size:17px;font-weight:600;margin:0;}
+  header p{font-size:12px;color:var(--sub);margin:4px 0 0;}
+  .stage{position:relative;width:100%;background:#000;}
+  video{width:100%;display:block;}
+  canvas#overlay{position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none;}
+  .toolbar{display:flex;gap:8px;padding:10px 16px;flex-wrap:wrap;}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:500;}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.on{background:var(--warn);border-color:var(--warn);color:#1a1a1a;}
+  .scoreboard{display:flex;gap:8px;padding:0 16px 10px;}
+  .cell{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 8px;text-align:center;}
+  .cell .val{font-size:22px;font-weight:700;}
+  .cell .lbl{font-size:11px;color:var(--sub);margin-top:2px;}
+  .cell.ball .val{color:var(--ball);}
+  .cell.strike .val{color:var(--strike);}
+  .cell.out .val{color:var(--warn);}
+  .panel{margin:0 16px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
+  .panel h2{font-size:13px;margin:0 0 10px;color:var(--sub);font-weight:600;}
+  .row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .row label{font-size:12px;color:var(--sub);width:110px;flex-shrink:0;}
+  .row input[type=range]{flex:1;}
+  .row input[type=number]{width:70px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px;font-size:13px;}
+  .manual{display:flex;gap:8px;flex-wrap:wrap;}
+  .manual button{flex:1;min-width:80px;}
+  .result{padding:0 16px 10px;font-size:13px;color:var(--sub);}
+  .result b{color:var(--text);}
+  .log{margin:0 16px 20px;}
+  .log-item{display:flex;justify-content:space-between;font-size:12px;padding:7px 0;border-bottom:1px solid var(--line);color:var(--sub);}
+  .log-item .r-strike{color:var(--strike);font-weight:600;}
+  .log-item .r-ball{color:var(--ball);font-weight:600;}
+  .hint{font-size:11px;color:var(--sub);line-height:1.5;}
+</style>
 </head>
 <body>
 
-<h1>⚾ ABS (Automatic Ball Strike)</h1>
+<header>
+  <h1>ABS 판독기</h1>
+  <p>카메라를 타자와 수평(측면)으로 고정 후 사용하세요. 궤적/구속/볼-스트라이크 판정</p>
+</header>
 
-<div id="cameraBox">
-
-    <video id="video" autoplay playsinline></video>
-
-    <canvas id="canvas"></canvas>
-
-    <div id="zone"></div>
-
+<div class="stage">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
 </div>
 
-<div class="info">
+<div class="toolbar">
+  <button id="btnCam" class="primary">카메라 시작</button>
+  <button id="btnCalib">캘리브레이션(2점 클릭)</button>
+</div>
+<div class="hint" style="margin:-4px 16px 10px;">캘리브레이션: 버튼을 누르고 화면에서 실제 거리를 아는 두 지점을 순서대로 탭한 뒤, 아래 실측거리(m)를 입력하면 구속이 계산됩니다.</div>
 
-    <h2 id="result">READY</h2>
-
-    <p>볼 : <span id="balls">0</span></p>
-
-    <p>스트라이크 : <span id="strikes">0</span></p>
-
-    <p>구속 : <span id="speed">0</span> km/h</p>
-
+<div class="panel">
+  <h2>캘리브레이션 값</h2>
+  <div class="row">
+    <label>실측거리 (m)</label>
+    <input type="number" id="calibMeters" value="1.0" step="0.1" min="0.1">
+  </div>
+  <div class="hint" id="calibStatus">아직 캘리브레이션 안 됨 → 구속은 기본 가정치(화면폭=3m)로 추정됩니다.</div>
 </div>
 
-<script src="script.js"></script>
+<div class="panel">
+  <h2>스트라이크존 조정</h2>
+  <div class="row"><label>좌우 위치(플레이트)</label><input type="range" id="zoneX" min="10" max="90" value="50"></div>
+  <div class="row"><label>존 폭</label><input type="range" id="zoneW" min="5" max="50" value="22"></div>
+  <div class="row"><label>상하 중심위치</label><input type="range" id="zoneY" min="10" max="90" value="55"></div>
+  <div class="row"><label>존 높이</label><input type="range" id="zoneH" min="10" max="70" value="38"></div>
+</div>
 
+<div class="scoreboard">
+  <div class="cell ball"><div class="val" id="ballCount">0</div><div class="lbl">볼</div></div>
+  <div class="cell strike"><div class="val" id="strikeCount">0</div><div class="lbl">스트라이크</div></div>
+  <div class="cell out"><div class="val" id="outCount">0</div><div class="lbl">아웃</div></div>
+  <div class="cell"><div class="val" id="pitchCount">0</div><div class="lbl">투구수</div></div>
+</div>
+
+<div class="result">최근 판정: <b id="lastResult">-</b> · 구속: <b id="lastSpeed">-</b></div>
+
+<div class="panel">
+  <h2>수동 보정 (판독 실패 시 직접 기록)</h2>
+  <div class="manual">
+    <button id="mBall">+ 볼</button>
+    <button id="mStrike">+ 스트라이크</button>
+    <button id="mOut">+ 아웃</button>
+    <button id="mReset">전체 초기화</button>
+  </div>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const octx = overlay.getContext('2d');
+
+// hidden low-res processing canvas
+const proc = document.createElement('canvas');
+const pctx = proc.getContext('2d', {willReadFrequently:true});
+const PW = 128, PH = 72;
+proc.width = PW; proc.height = PH;
+
+let streaming = false;
+let prevFrame = null;
+
+// calibration
+let calibrating = false;
+let calibPoints = [];
+let pixelsPerMeter = null;
+
+// zone config (percent of video frame)
+const zoneCfg = { x:50, w:22, y:55, h:38 };
+['zoneX','zoneW','zoneY','zoneH'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', e=>{
+    zoneCfg[id.replace('zone','').toLowerCase()] = Number(e.target.value);
+  });
+});
+
+// pitch tracking state
+let trajectory = [];
+let missFrames = 0;
+let tracking = false;
+const MISS_LIMIT = 6;
+const MIN_POINTS = 4;
+const MIN_BLOB_PIX = 3, MAX_BLOB_PIX = 300;
+
+// counts
+let counts = { ball:0, strike:0, out:0, pitch:0 };
+const logEl = document.getElementById('log');
+
+function updateScoreboard(){
+  document.getElementById('ballCount').textContent = counts.ball;
+  document.getElementById('strikeCount').textContent = counts.strike;
+  document.getElementById('outCount').textContent = counts.out;
+  document.getElementById('pitchCount').textContent = counts.pitch;
+}
+
+function addLog(result, speedKmh){
+  const item = document.createElement('div');
+  item.className = 'log-item';
+  const cls = result === '스트라이크' ? 'r-strike' : 'r-ball';
+  item.innerHTML = `<span>#${counts.pitch}</span><span class="${cls}">${result}</span><span>${speedKmh ? speedKmh.toFixed(1)+' km/h' : '-'}</span>`;
+  logEl.prepend(item);
+}
+
+function applyResult(result, speedKmh){
+  counts.pitch++;
+  document.getElementById('lastResult').textContent = result;
+  document.getElementById('lastSpeed').textContent = speedKmh ? speedKmh.toFixed(1)+' km/h' : '측정불가';
+  addLog(result, speedKmh);
+
+  if(result === '스트라이크'){
+    counts.strike++;
+    if(counts.strike >= 3){
+      counts.out++;
+      counts.strike = 0;
+      counts.ball = 0;
+      checkOuts();
+    }
+  } else {
+    counts.ball++;
+    if(counts.ball >= 4){
+      counts.strike = 0;
+      counts.ball = 0;
+      // 볼넷은 아웃이 아니므로 out은 증가시키지 않음
+    }
+  }
+  updateScoreboard();
+}
+
+function checkOuts(){
+  if(counts.out >= 3){
+    counts.out = 0;
+    counts.ball = 0;
+    counts.strike = 0;
+  }
+}
+
+// manual buttons
+document.getElementById('mBall').onclick = ()=> applyResult('볼', null);
+document.getElementById('mStrike').onclick = ()=> applyResult('스트라이크', null);
+document.getElementById('mOut').onclick = ()=>{
+  counts.out++;
+  checkOuts();
+  updateScoreboard();
+};
+document.getElementById('mReset').onclick = ()=>{
+  counts = { ball:0, strike:0, out:0, pitch:0 };
+  updateScoreboard();
+  logEl.innerHTML = '';
+};
+
+// camera
+document.getElementById('btnCam').onclick = async ()=>{
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    resizeCanvas();
+    streaming = true;
+    requestAnimationFrame(loop);
+  }catch(err){
+    alert('카메라 접근 실패: ' + err.message);
+  }
+};
+
+function resizeCanvas(){
+  overlay.width = video.videoWidth;
+  overlay.height = video.videoHeight;
+}
+window.addEventListener('resize', ()=>{ if(streaming) resizeCanvas(); });
+
+// calibration UI
+document.getElementById('btnCalib').onclick = (e)=>{
+  calibrating = true;
+  calibPoints = [];
+  pixelsPerMeter = null;
+  e.target.classList.add('on');
+  document.getElementById('calibStatus').textContent = '화면에서 기준이 되는 두 지점을 순서대로 탭하세요.';
+};
+
+overlay.addEventListener('click', (e)=>{
+  if(!calibrating) return;
+  const rect = overlay.getBoundingClientRect();
+  const scaleX = overlay.width / rect.width;
+  const scaleY = overlay.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  calibPoints.push({x,y});
+  if(calibPoints.length === 2){
+    const dx = calibPoints[1].x - calibPoints[0].x;
+    const dy = calibPoints[1].y - calibPoints[0].y;
+    const pixelDist = Math.sqrt(dx*dx + dy*dy);
+    const meters = Number(document.getElementById('calibMeters').value) || 1;
+    pixelsPerMeter = pixelDist / meters;
+    document.getElementById('calibStatus').textContent =
+      `캘리브레이션 완료: ${pixelDist.toFixed(0)}px = ${meters}m (${pixelsPerMeter.toFixed(1)} px/m)`;
+    calibrating = false;
+    document.getElementById('btnCalib').classList.remove('on');
+  }
+});
+
+// main loop: detect ball via frame differencing + brightness, draw overlay
+function loop(){
+  if(!streaming) return;
+  detectFrame();
+  drawOverlay();
+  requestAnimationFrame(loop);
+}
+
+function detectFrame(){
+  pctx.drawImage(video, 0, 0, PW, PH);
+  const frame = pctx.getImageData(0, 0, PW, PH);
+  const data = frame.data;
+
+  if(prevFrame){
+    let sumX=0, sumY=0, count=0;
+    const pd = prevFrame.data;
+    for(let i=0;i<data.length;i+=4){
+      const lum = (data[i]+data[i+1]+data[i+2])/3;
+      const plum = (pd[i]+pd[i+1]+pd[i+2])/3;
+      const diff = Math.abs(lum - plum);
+      if(diff > 28 && lum > 150){ // moving AND bright (ball is white/light)
+        const px = (i/4) % PW;
+        const py = Math.floor((i/4) / PW);
+        sumX += px; sumY += py; count++;
+      }
+    }
+    if(count >= MIN_BLOB_PIX && count <= MAX_BLOB_PIX){
+      const cx = (sumX/count) / PW * video.videoWidth;
+      const cy = (sumY/count) / PH * video.videoHeight;
+      trajectory.push({x:cx, y:cy, t:performance.now()});
+      tracking = true;
+      missFrames = 0;
+    } else if(tracking){
+      missFrames++;
+      if(missFrames > MISS_LIMIT){
+        finalizePitch();
+      }
+    }
+  }
+  prevFrame = frame;
+
+  // safety: discard stuck/too-long tracking (noise) after ~2.5s
+  if(tracking && trajectory.length && performance.now() - trajectory[0].t > 2500){
+    finalizePitch();
+  }
+}
+
+function getZonePx(){
+  const w = video.videoWidth, h = video.videoHeight;
+  return {
+    plateX: zoneCfg.x/100 * w,
+    left: (zoneCfg.x - zoneCfg.w/2)/100 * w,
+    right: (zoneCfg.x + zoneCfg.w/2)/100 * w,
+    top: (zoneCfg.y - zoneCfg.h/2)/100 * h,
+    bottom: (zoneCfg.y + zoneCfg.h/2)/100 * h,
+  };
+}
+
+function finalizePitch(){
+  const pts = trajectory;
+  trajectory = [];
+  tracking = false;
+  missFrames = 0;
+
+  if(pts.length < MIN_POINTS){ return; } // too short, treat as noise
+
+  const zone = getZonePx();
+  // find y at x = plateX by interpolating the two points that bracket it
+  let crossY = null;
+  const sorted = [...pts].sort((a,b)=>a.x-b.x);
+  for(let i=0;i<sorted.length-1;i++){
+    const a = sorted[i], b = sorted[i+1];
+    if((a.x <= zone.plateX && b.x >= zone.plateX) || (a.x >= zone.plateX && b.x <= zone.plateX)){
+      const t = (zone.plateX - a.x) / (b.x - a.x || 1);
+      crossY = a.y + (b.y - a.y) * t;
+      break;
+    }
+  }
+  if(crossY === null){
+    // ball never reached plate line on screen — closest point fallback
+    const closest = sorted.reduce((p,c)=> Math.abs(c.x-zone.plateX) < Math.abs(p.x-zone.plateX) ? c : p);
+    crossY = closest.y;
+  }
+
+  const isStrike = crossY >= zone.top && crossY <= zone.bottom;
+
+  // speed: total path length / elapsed time
+  let pathPx = 0;
+  for(let i=1;i<pts.length;i++){
+    pathPx += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
+  }
+  const elapsedSec = (pts[pts.length-1].t - pts[0].t) / 1000;
+  const ppm = pixelsPerMeter || (video.videoWidth / 3); // fallback: assume 3m visible width
+  let speedKmh = null;
+  if(elapsedSec > 0){
+    const meters = pathPx / ppm;
+    speedKmh = (meters / elapsedSec) * 3.6;
+    if(speedKmh > 200 || speedKmh < 20) speedKmh = null; // sanity filter
+  }
+
+  applyResult(isStrike ? '스트라이크' : '볼', speedKmh);
+}
+
+function drawOverlay(){
+  const w = overlay.width, h = overlay.height;
+  octx.clearRect(0,0,w,h);
+  const zone = getZonePx();
+
+  // plate line
+  octx.strokeStyle = 'rgba(255,255,255,0.5)';
+  octx.lineWidth = 1.5;
+  octx.setLineDash([6,6]);
+  octx.beginPath();
+  octx.moveTo(zone.plateX, 0);
+  octx.lineTo(zone.plateX, h);
+  octx.stroke();
+  octx.setLineDash([]);
+
+  // strike zone box
+  octx.strokeStyle = '#4f8ff0';
+  octx.lineWidth = 2;
+  octx.strokeRect(zone.left, zone.top, zone.right-zone.left, zone.bottom-zone.top);
+
+  // trajectory
+  if(trajectory.length > 1){
+    octx.strokeStyle = '#e0a83f';
+    octx.lineWidth = 3;
+    octx.beginPath();
+    trajectory.forEach((p,i)=>{
+      if(i===0) octx.moveTo(p.x,p.y); else octx.lineTo(p.x,p.y);
+    });
+    octx.stroke();
+    const last = trajectory[trajectory.length-1];
+    octx.fillStyle = '#e0a83f';
+    octx.beginPath();
+    octx.arc(last.x, last.y, 5, 0, Math.PI*2);
+    octx.fill();
+  }
+
+  // calibration points
+  calibPoints.forEach(p=>{
+    octx.fillStyle = '#3fb56f';
+    octx.beginPath();
+    octx.arc(p.x, p.y, 5, 0, Math.PI*2);
+    octx.fill();
+  });
+}
+
+updateScoreboard();
+</script>
 </body>
 </html>
