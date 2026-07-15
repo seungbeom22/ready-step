@@ -14,14 +14,14 @@
   header{padding:14px 16px 8px;}
   header h1{font-size:17px;font-weight:600;margin:0;}
   header p{font-size:12px;color:var(--sub);margin:4px 0 0;}
-  .stage{position:relative;width:100%;background:#000;}
-  video{width:100%;display:block;}
-  canvas#overlay{position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none;}
+  .stage{position:relative;width:100%;background:#000;aspect-ratio:16/9;overflow:hidden;}
+  video{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:fill;}
+  canvas#overlay{position:absolute;inset:0;width:100%;height:100%;touch-action:none;}
   .toolbar{display:flex;gap:8px;padding:10px 16px;flex-wrap:wrap;}
   button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:500;}
   button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
   button.on{background:var(--warn);border-color:var(--warn);color:#1a1a1a;}
-  .scoreboard{display:flex;gap:8px;padding:0 16px 10px;}
+  .scoreboard{position:sticky;top:0;z-index:5;display:flex;gap:8px;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--line);}
   .cell{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 8px;text-align:center;}
   .cell .val{font-size:22px;font-weight:700;}
   .cell .lbl{font-size:11px;color:var(--sub);margin-top:2px;}
@@ -57,19 +57,27 @@
   <canvas id="overlay"></canvas>
 </div>
 
+<div class="scoreboard">
+  <div class="cell ball"><div class="val" id="ballCount">0</div><div class="lbl">볼</div></div>
+  <div class="cell strike"><div class="val" id="strikeCount">0</div><div class="lbl">스트라이크</div></div>
+  <div class="cell out"><div class="val" id="outCount">0</div><div class="lbl">아웃</div></div>
+  <div class="cell"><div class="val" id="pitchCount">0</div><div class="lbl">투구수</div></div>
+</div>
+<div class="result">최근 판정: <b id="lastResult">-</b> · 구속: <b id="lastSpeed">-</b></div>
+
 <div class="toolbar">
   <button id="btnCam" class="primary">카메라 시작</button>
   <button id="btnCalib">캘리브레이션(2점 클릭)</button>
 </div>
-<div class="hint" style="margin:-4px 16px 10px;">캘리브레이션: 버튼을 누르고 화면에서 실제 거리를 아는 두 지점을 순서대로 탭한 뒤, 아래 실측거리(m)를 입력하면 구속이 계산됩니다.</div>
+<div class="hint" style="margin:-4px 16px 10px;">캘리브레이션: 버튼을 누르고 화면에서 실제 거리를 아는 두 지점을 순서대로 탭한 뒤, 아래 실측거리(m)를 입력하면 구속이 계산됩니다. (선택사항 — 안 해도 판정에는 영향 없음)</div>
 
 <div class="panel">
-  <h2>캘리브레이션 값</h2>
+  <h2>캘리브레이션 값 <span style="color:var(--sub);font-weight:400;">(선택)</span></h2>
   <div class="row">
     <label>실측거리 (m)</label>
     <input type="number" id="calibMeters" value="1.0" step="0.1" min="0.1">
   </div>
-  <div class="hint" id="calibStatus">아직 캘리브레이션 안 됨 → 구속은 기본 가정치(화면폭=3m)로 추정됩니다.</div>
+  <div class="hint" id="calibStatus">아직 캘리브레이션 안 됨 → 구속은 기본 가정치(화면폭=3m)로 추정됩니다. 볼/스트라이크 판정 자체는 캘리브레이션 없이도 정상 작동해요.</div>
 </div>
 
 <div class="panel">
@@ -78,15 +86,6 @@
   <div class="row"><label>상하 중심위치</label><input type="range" id="zoneY" min="10" max="90" value="55"></div>
   <div class="row"><label>존 크기</label><input type="range" id="zoneSize" min="5" max="60" value="30"></div>
 </div>
-
-<div class="scoreboard">
-  <div class="cell ball"><div class="val" id="ballCount">0</div><div class="lbl">볼</div></div>
-  <div class="cell strike"><div class="val" id="strikeCount">0</div><div class="lbl">스트라이크</div></div>
-  <div class="cell out"><div class="val" id="outCount">0</div><div class="lbl">아웃</div></div>
-  <div class="cell"><div class="val" id="pitchCount">0</div><div class="lbl">투구수</div></div>
-</div>
-
-<div class="result">최근 판정: <b id="lastResult">-</b> · 구속: <b id="lastSpeed">-</b></div>
 
 <div class="panel">
   <h2>수동 보정 (판독 실패 시 직접 기록)</h2>
@@ -103,6 +102,7 @@
 <script>
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
+const stage = document.querySelector('.stage');
 const octx = overlay.getContext('2d');
 
 // hidden low-res processing canvas
@@ -203,16 +203,34 @@ document.getElementById('mReset').onclick = ()=>{
 };
 
 // camera
-document.getElementById('btnCam').onclick = async ()=>{
+let currentStream = null;
+document.getElementById('btnCam').onclick = async (e)=>{
+  if(streaming){
+    // stop camera
+    if(currentStream){ currentStream.getTracks().forEach(t=>t.stop()); }
+    streaming = false;
+    trajectory = []; tracking = false; missFrames = 0; prevFrame = null;
+    video.srcObject = null;
+    e.target.textContent = '카메라 시작';
+    e.target.classList.remove('on');
+    return;
+  }
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
+      video: {
+        facingMode:'environment',
+        width:{ideal:1280}, height:{ideal:720},
+        frameRate:{ideal:120, min:30} // request highest fps the device supports (slow-motion-like capture)
+      },
       audio: false
     });
+    currentStream = stream;
     video.srcObject = stream;
     await video.play();
     resizeCanvas();
     streaming = true;
+    e.target.textContent = '카메라 종료';
+    e.target.classList.add('on');
     requestAnimationFrame(loop);
   }catch(err){
     alert('카메라 접근 실패: ' + err.message);
@@ -222,6 +240,7 @@ document.getElementById('btnCam').onclick = async ()=>{
 function resizeCanvas(){
   overlay.width = video.videoWidth;
   overlay.height = video.videoHeight;
+  stage.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
 }
 window.addEventListener('resize', ()=>{ if(streaming) resizeCanvas(); });
 
@@ -263,19 +282,43 @@ function loop(){
   requestAnimationFrame(loop);
 }
 
+// color test: only white ball or green ball pixels count as candidates
+function isBallColor(r,g,b){
+  const maxc = Math.max(r,g,b), minc = Math.min(r,g,b);
+  const isWhite = r>165 && g>165 && b>165 && (maxc-minc) < 45; // bright + low saturation
+  const isGreen = g>90 && (g-r) > 22 && (g-b) > 18; // green ball hue
+  return isWhite || isGreen;
+}
+
 function detectFrame(){
   pctx.drawImage(video, 0, 0, PW, PH);
   const frame = pctx.getImageData(0, 0, PW, PH);
   const data = frame.data;
 
   if(prevFrame){
-    let sumX=0, sumY=0, count=0;
     const pd = prevFrame.data;
+    const totalPixels = PW*PH;
+
+    // shake guard: if a large fraction of the whole frame changed at once,
+    // it's camera movement, not a small ball — skip this frame entirely.
+    let globalDiffCount = 0;
     for(let i=0;i<data.length;i+=4){
       const lum = (data[i]+data[i+1]+data[i+2])/3;
       const plum = (pd[i]+pd[i+1]+pd[i+2])/3;
-      const diff = Math.abs(lum - plum);
-      if(diff > 28 && lum > 150){ // moving AND bright (ball is white/light)
+      if(Math.abs(lum-plum) > 12) globalDiffCount++;
+    }
+    if(globalDiffCount / totalPixels > 0.35){
+      prevFrame = frame;
+      return; // treat as shake — don't touch tracking state, just skip
+    }
+
+    let sumX=0, sumY=0, count=0;
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i], g=data[i+1], b=data[i+2];
+      if(!isBallColor(r,g,b)) continue;
+      const lum = (r+g+b)/3;
+      const plum = (pd[i]+pd[i+1]+pd[i+2])/3;
+      if(Math.abs(lum - plum) > 16){ // must also be moving
         const px = (i/4) % PW;
         const py = Math.floor((i/4) / PW);
         sumX += px; sumY += py; count++;
@@ -304,12 +347,16 @@ function detectFrame(){
 
 function getZonePx(){
   const w = video.videoWidth, h = video.videoHeight;
+  const plateX = zoneCfg.x/100 * w;
+  const centerY = zoneCfg.y/100 * h;
+  const ref = Math.min(w, h); // reference dimension so the box renders as an actual square in pixels
+  const sizePx = zoneCfg.size/100 * ref;
   return {
-    plateX: zoneCfg.x/100 * w,
-    left: (zoneCfg.x - zoneCfg.w/2)/100 * w,
-    right: (zoneCfg.x + zoneCfg.w/2)/100 * w,
-    top: (zoneCfg.y - zoneCfg.h/2)/100 * h,
-    bottom: (zoneCfg.y + zoneCfg.h/2)/100 * h,
+    plateX,
+    left: plateX - sizePx/2,
+    right: plateX + sizePx/2,
+    top: centerY - sizePx/2,
+    bottom: centerY + sizePx/2,
   };
 }
 
