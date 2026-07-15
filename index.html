@@ -14,15 +14,15 @@
   header{padding:14px 16px 8px;}
   header h1{font-size:17px;font-weight:600;margin:0;}
   header p{font-size:12px;color:var(--sub);margin:4px 0 0;}
-  .stage{position:relative;width:100%;background:#000;aspect-ratio:16/9;overflow:hidden;}
-  video{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:fill;}
-  canvas#overlay{position:absolute;inset:0;width:100%;height:100%;touch-action:none;}
   .toolbar{display:flex;gap:8px;padding:10px 16px;flex-wrap:wrap;}
   button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:500;}
   button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
   button.on{background:var(--warn);border-color:var(--warn);color:#1a1a1a;}
   button:disabled{opacity:0.35;}
-  .scoreboard{display:flex;gap:8px;padding:0 16px 10px;}
+  .stage{position:relative;width:100%;background:#000;}
+  canvas#stageCanvas{display:block;width:100%;height:auto;touch-action:none;}
+  #camOffMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:13px;background:#000;text-align:center;padding:0 20px;}
+  .scoreboard{display:flex;gap:8px;padding:10px 16px 10px;}
   .cell{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 8px;text-align:center;}
   .cell .val{font-size:22px;font-weight:700;}
   .cell .lbl{font-size:11px;color:var(--sub);margin-top:2px;}
@@ -53,16 +53,16 @@
   <p>카메라를 타자와 수평(측면)으로 고정 후 사용하세요. 궤적/구속/볼-스트라이크 판정</p>
 </header>
 
-<div class="stage">
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="overlay"></canvas>
-  <div id="camOffMsg" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:13px;background:#000;">카메라 꺼짐 — "카메라 시작"을 눌러주세요</div>
-</div>
-
 <div class="toolbar">
   <button id="btnCamStart" class="primary">카메라 시작</button>
   <button id="btnCamStop" disabled>카메라 종료</button>
   <button id="btnCalib">캘리브레이션(2점 클릭)</button>
+</div>
+
+<div class="stage">
+  <video id="video" autoplay playsinline muted style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;"></video>
+  <canvas id="stageCanvas" width="1280" height="720"></canvas>
+  <div id="camOffMsg">카메라 꺼짐 — "카메라 시작"을 눌러주세요</div>
 </div>
 
 <div class="scoreboard">
@@ -105,11 +105,11 @@
 
 <script>
 const video = document.getElementById('video');
-const overlay = document.getElementById('overlay');
-const stage = document.querySelector('.stage');
-const octx = overlay.getContext('2d');
+const stageCanvas = document.getElementById('stageCanvas');
+const sctx = stageCanvas.getContext('2d');
+const camOffMsg = document.getElementById('camOffMsg');
 
-// hidden low-res processing canvas
+// hidden low-res processing canvas (ball detection only, never displayed)
 const proc = document.createElement('canvas');
 const pctx = proc.getContext('2d', {willReadFrequently:true});
 const PW = 128, PH = 72;
@@ -117,6 +117,7 @@ proc.width = PW; proc.height = PH;
 
 let streaming = false;
 let prevFrame = null;
+let currentStream = null;
 
 // calibration
 let calibrating = false;
@@ -124,7 +125,7 @@ let calibPoints = [];
 let pixelsPerMeter = null;
 
 // zone config (percent of video frame). size is percent of the shorter video dimension,
-// applied equally to width and height so the zone always renders as a square.
+// applied equally to width and height so the zone always renders as a true square.
 const zoneCfg = { x:50, y:50, size:30 };
 ['zoneX','zoneY','zoneSize'].forEach(id=>{
   document.getElementById(id).addEventListener('input', e=>{
@@ -207,8 +208,6 @@ document.getElementById('mReset').onclick = ()=>{
 };
 
 // camera
-let currentStream = null;
-const camOffMsg = document.getElementById('camOffMsg');
 const btnCamStart = document.getElementById('btnCamStart');
 const btnCamStop = document.getElementById('btnCamStop');
 
@@ -244,18 +243,19 @@ btnCamStop.onclick = ()=>{
   trajectory = []; tracking = false; missFrames = 0; prevFrame = null;
   video.srcObject = null;
   currentStream = null;
-  octx.clearRect(0,0,overlay.width,overlay.height);
+  sctx.clearRect(0,0,stageCanvas.width,stageCanvas.height);
   camOffMsg.style.display = 'flex';
   btnCamStart.disabled = false;
   btnCamStop.disabled = true;
 };
 
 function resizeCanvas(){
-  overlay.width = video.videoWidth;
-  overlay.height = video.videoHeight;
-  stage.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
+  // canvas intrinsic width/height IS its coordinate space; CSS width:100%;height:auto
+  // then scales it uniformly (same factor in x and y), so anything drawn here — including
+  // the strike zone square — never distorts or drifts, unlike overlaying a separate <video>.
+  stageCanvas.width = video.videoWidth;
+  stageCanvas.height = video.videoHeight;
 }
-window.addEventListener('resize', ()=>{ if(streaming) resizeCanvas(); });
 
 // calibration UI
 document.getElementById('btnCalib').onclick = (e)=>{
@@ -266,11 +266,11 @@ document.getElementById('btnCalib').onclick = (e)=>{
   document.getElementById('calibStatus').textContent = '화면에서 기준이 되는 두 지점을 순서대로 탭하세요.';
 };
 
-overlay.addEventListener('click', (e)=>{
+stageCanvas.addEventListener('click', (e)=>{
   if(!calibrating) return;
-  const rect = overlay.getBoundingClientRect();
-  const scaleX = overlay.width / rect.width;
-  const scaleY = overlay.height / rect.height;
+  const rect = stageCanvas.getBoundingClientRect();
+  const scaleX = stageCanvas.width / rect.width;
+  const scaleY = stageCanvas.height / rect.height;
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
   calibPoints.push({x,y});
@@ -287,11 +287,11 @@ overlay.addEventListener('click', (e)=>{
   }
 });
 
-// main loop: detect ball via frame differencing + brightness, draw overlay
+// main loop: detect ball via color+motion filtering, then render video + overlay onto one canvas
 function loop(){
   if(!streaming) return;
   detectFrame();
-  drawOverlay();
+  renderFrame();
   requestAnimationFrame(loop);
 }
 
@@ -359,7 +359,7 @@ function detectFrame(){
 }
 
 function getZonePx(){
-  const w = video.videoWidth, h = video.videoHeight;
+  const w = stageCanvas.width, h = stageCanvas.height;
   const plateX = zoneCfg.x/100 * w;
   const centerY = zoneCfg.y/100 * h;
   const ref = Math.min(w, h); // reference dimension so the box renders as an actual square in pixels
@@ -407,7 +407,7 @@ function finalizePitch(){
     pathPx += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
   }
   const elapsedSec = (pts[pts.length-1].t - pts[0].t) / 1000;
-  const ppm = pixelsPerMeter || (video.videoWidth / 3); // fallback: assume 3m visible width
+  const ppm = pixelsPerMeter || (stageCanvas.width / 3); // fallback: assume 3m visible width
   let speedKmh = null;
   if(elapsedSec > 0){
     const meters = pathPx / ppm;
@@ -418,48 +418,51 @@ function finalizePitch(){
   applyResult(isStrike ? '스트라이크' : '볼', speedKmh);
 }
 
-function drawOverlay(){
-  const w = overlay.width, h = overlay.height;
-  octx.clearRect(0,0,w,h);
+function renderFrame(){
+  const w = stageCanvas.width, h = stageCanvas.height;
+  // draw the live camera frame first, then everything else on top — one coordinate space,
+  // so nothing can drift relative to the video underneath it.
+  sctx.drawImage(video, 0, 0, w, h);
+
   const zone = getZonePx();
 
   // plate line
-  octx.strokeStyle = 'rgba(255,255,255,0.5)';
-  octx.lineWidth = 1.5;
-  octx.setLineDash([6,6]);
-  octx.beginPath();
-  octx.moveTo(zone.plateX, 0);
-  octx.lineTo(zone.plateX, h);
-  octx.stroke();
-  octx.setLineDash([]);
+  sctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  sctx.lineWidth = 1.5;
+  sctx.setLineDash([6,6]);
+  sctx.beginPath();
+  sctx.moveTo(zone.plateX, 0);
+  sctx.lineTo(zone.plateX, h);
+  sctx.stroke();
+  sctx.setLineDash([]);
 
   // strike zone box
-  octx.strokeStyle = '#4f8ff0';
-  octx.lineWidth = 2;
-  octx.strokeRect(zone.left, zone.top, zone.right-zone.left, zone.bottom-zone.top);
+  sctx.strokeStyle = '#4f8ff0';
+  sctx.lineWidth = 2;
+  sctx.strokeRect(zone.left, zone.top, zone.right-zone.left, zone.bottom-zone.top);
 
   // trajectory
   if(trajectory.length > 1){
-    octx.strokeStyle = '#e0a83f';
-    octx.lineWidth = 3;
-    octx.beginPath();
+    sctx.strokeStyle = '#e0a83f';
+    sctx.lineWidth = 3;
+    sctx.beginPath();
     trajectory.forEach((p,i)=>{
-      if(i===0) octx.moveTo(p.x,p.y); else octx.lineTo(p.x,p.y);
+      if(i===0) sctx.moveTo(p.x,p.y); else sctx.lineTo(p.x,p.y);
     });
-    octx.stroke();
+    sctx.stroke();
     const last = trajectory[trajectory.length-1];
-    octx.fillStyle = '#e0a83f';
-    octx.beginPath();
-    octx.arc(last.x, last.y, 5, 0, Math.PI*2);
-    octx.fill();
+    sctx.fillStyle = '#e0a83f';
+    sctx.beginPath();
+    sctx.arc(last.x, last.y, 5, 0, Math.PI*2);
+    sctx.fill();
   }
 
   // calibration points
   calibPoints.forEach(p=>{
-    octx.fillStyle = '#3fb56f';
-    octx.beginPath();
-    octx.arc(p.x, p.y, 5, 0, Math.PI*2);
-    octx.fill();
+    sctx.fillStyle = '#3fb56f';
+    sctx.beginPath();
+    sctx.arc(p.x, p.y, 5, 0, Math.PI*2);
+    sctx.fill();
   });
 }
 
