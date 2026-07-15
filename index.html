@@ -21,7 +21,8 @@
   button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:500;}
   button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
   button.on{background:var(--warn);border-color:var(--warn);color:#1a1a1a;}
-  .scoreboard{position:sticky;top:0;z-index:5;display:flex;gap:8px;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--line);}
+  button:disabled{opacity:0.35;}
+  .scoreboard{display:flex;gap:8px;padding:0 16px 10px;}
   .cell{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 8px;text-align:center;}
   .cell .val{font-size:22px;font-weight:700;}
   .cell .lbl{font-size:11px;color:var(--sub);margin-top:2px;}
@@ -55,6 +56,13 @@
 <div class="stage">
   <video id="video" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
+  <div id="camOffMsg" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:13px;background:#000;">카메라 꺼짐 — "카메라 시작"을 눌러주세요</div>
+</div>
+
+<div class="toolbar">
+  <button id="btnCamStart" class="primary">카메라 시작</button>
+  <button id="btnCamStop" disabled>카메라 종료</button>
+  <button id="btnCalib">캘리브레이션(2점 클릭)</button>
 </div>
 
 <div class="scoreboard">
@@ -65,10 +73,6 @@
 </div>
 <div class="result">최근 판정: <b id="lastResult">-</b> · 구속: <b id="lastSpeed">-</b></div>
 
-<div class="toolbar">
-  <button id="btnCam" class="primary">카메라 시작</button>
-  <button id="btnCalib">캘리브레이션(2점 클릭)</button>
-</div>
 <div class="hint" style="margin:-4px 16px 10px;">캘리브레이션: 버튼을 누르고 화면에서 실제 거리를 아는 두 지점을 순서대로 탭한 뒤, 아래 실측거리(m)를 입력하면 구속이 계산됩니다. (선택사항 — 안 해도 판정에는 영향 없음)</div>
 
 <div class="panel">
@@ -83,7 +87,7 @@
 <div class="panel">
   <h2>스트라이크존 조정</h2>
   <div class="row"><label>좌우 위치(플레이트)</label><input type="range" id="zoneX" min="10" max="90" value="50"></div>
-  <div class="row"><label>상하 중심위치</label><input type="range" id="zoneY" min="10" max="90" value="55"></div>
+  <div class="row"><label>상하 중심위치</label><input type="range" id="zoneY" min="10" max="90" value="50"></div>
   <div class="row"><label>존 크기</label><input type="range" id="zoneSize" min="5" max="60" value="30"></div>
 </div>
 
@@ -121,7 +125,7 @@ let pixelsPerMeter = null;
 
 // zone config (percent of video frame). size is percent of the shorter video dimension,
 // applied equally to width and height so the zone always renders as a square.
-const zoneCfg = { x:50, y:55, size:30 };
+const zoneCfg = { x:50, y:50, size:30 };
 ['zoneX','zoneY','zoneSize'].forEach(id=>{
   document.getElementById(id).addEventListener('input', e=>{
     zoneCfg[id.replace('zone','').toLowerCase()] = Number(e.target.value);
@@ -204,17 +208,12 @@ document.getElementById('mReset').onclick = ()=>{
 
 // camera
 let currentStream = null;
-document.getElementById('btnCam').onclick = async (e)=>{
-  if(streaming){
-    // stop camera
-    if(currentStream){ currentStream.getTracks().forEach(t=>t.stop()); }
-    streaming = false;
-    trajectory = []; tracking = false; missFrames = 0; prevFrame = null;
-    video.srcObject = null;
-    e.target.textContent = '카메라 시작';
-    e.target.classList.remove('on');
-    return;
-  }
+const camOffMsg = document.getElementById('camOffMsg');
+const btnCamStart = document.getElementById('btnCamStart');
+const btnCamStop = document.getElementById('btnCamStop');
+
+btnCamStart.onclick = async ()=>{
+  if(streaming) return;
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -229,12 +228,26 @@ document.getElementById('btnCam').onclick = async (e)=>{
     await video.play();
     resizeCanvas();
     streaming = true;
-    e.target.textContent = '카메라 종료';
-    e.target.classList.add('on');
+    camOffMsg.style.display = 'none';
+    btnCamStart.disabled = true;
+    btnCamStop.disabled = false;
     requestAnimationFrame(loop);
   }catch(err){
     alert('카메라 접근 실패: ' + err.message);
   }
+};
+
+btnCamStop.onclick = ()=>{
+  if(!streaming) return;
+  if(currentStream){ currentStream.getTracks().forEach(t=>t.stop()); }
+  streaming = false;
+  trajectory = []; tracking = false; missFrames = 0; prevFrame = null;
+  video.srcObject = null;
+  currentStream = null;
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  camOffMsg.style.display = 'flex';
+  btnCamStart.disabled = false;
+  btnCamStop.disabled = true;
 };
 
 function resizeCanvas(){
